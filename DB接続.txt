@@ -1,0 +1,221 @@
+Public Sub Button1_Click()
+    UserForm2.Image1.Picture = Application.CommandBars.GetImageMso("ImportMoreOptionsMenu", 32, 32)
+    UserForm2.Show
+    UserForm2.Left = 186
+    UserForm2.Top = 105
+End Sub
+
+Sub Worksheet_Activate()
+    UserForm2.Image1.Picture = Application.CommandBars.GetImageMso("ImportMoreOptionsMenu", 32, 32)
+    UserForm2.Show
+    UserForm2.Left = 186
+    UserForm2.Top = 105
+End Sub
+Private Sub Worksheet_Deactivate()
+    Unload UserForm2
+End Sub
+
+
+
+
+
+
+
+
+
+
+
+
+
+'SQL文実行
+Private Const PATH = "C:\tmp\tmpSql\"
+Private Const RUN_SQL_BAT = "runSqlBat.bat"
+Private Const TMP_SQL_FILE = "tmpSql.sql"
+Private Const TMP_SQL_RESULT = "sqlRunResult.csv"
+Private Const FINALLY_RESULT = "finallyResult.csv"
+Private Const ERROR_LOG = "errorLog.log"
+Private HOST As String
+Private PORT As String
+Private DB_NAME As String
+Private USER_ID As String
+Private PASSWORD As String
+Private SQL_STR As String
+Private FSO As Object
+'SQL文実行ボタンを押下
+Private Sub CommandButton1_Click()
+    Dim Ws As Worksheet
+    Set Ws = Sheets("Sheet1")
+    HOST = Ws.Cells(2, 2).Value
+    PORT = Ws.Cells(2, 3).Value
+    DB_NAME = Ws.Cells(2, 4).Value
+    USER_ID = Ws.Cells(2, 5).Value
+    PASSWORD = Ws.Cells(2, 6).Value
+    SQL_STR = TextBox1.Value
+    'DB接続情報チェック
+    If HOST = "" Or PORT = "" Or DB_NAME = "" Or USER_ID = "" Or PASSWORD = "" Then
+        MsgBox ("正しいDB接続情報を設定してください。(#^ω^)")
+        Exit Sub
+    End If
+    
+    'SQL文チェック
+    If SQL_STR = "" Or SQL_STR = "select * from " Or SQL_STR = "select * from" Then
+        MsgBox ("実行したいSQL文を入力してください。（￣～￣）")
+        Exit Sub
+    End If
+    CommandButton1.Enabled = False
+    Call sql_run
+    CommandButton1.Enabled = True
+End Sub
+
+'SQL実行
+Private Sub sql_run()
+    Dim oShell As Object
+    Dim result As String
+    Dim i As Integer, linecount As Long, dataLineCount As Long
+
+    Set oShell = CreateObject("WScript.Shell")
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+    'フォルダ存在チェック、存在しない場合、メッセージ出す
+    If Not FSO.FolderExists(PATH) Then
+        MsgBox ("フォルダを作成してください。（￣～￣）" & vbCrLf & PATH)
+        Set oShell = Nothing
+        Set FSO = Nothing
+        Exit Sub
+    End If
+    
+    Call createBatFile
+    result = oShell.Run(PATH & RUN_SQL_BAT, 0, True)
+    '検索結果行数取得
+    dataLineCount = FSO.OpenTextFile(Filename:=PATH & FINALLY_RESULT, IOMode:=8).line
+    '検索結果行数が1000000行以上の場合、終了
+    If (dataLineCount > 1000000) Then
+        Range("C10:FU1010000").Clear
+        MsgBox ("検索結果が100万以上、実施できず。（￣～￣）")
+        Set oShell = Nothing
+        Set FSO = Nothing
+        Exit Sub
+    End If
+
+    '100万行削除
+    Range("C10:FU1010000").Clear
+    ActiveSheet.Cells.ColumnWidth = 4
+    Dim fixFlag As Boolean
+    fixFlag = readCsv
+    'ログ行数取得、1行以上の場合、エラーを参照
+    linecount = FSO.OpenTextFile(Filename:=PATH & ERROR_LOG, IOMode:=8).line
+    '正常登録判定
+    If (result = 0 And fixFlag And linecount = 1) Then
+        Call deleteFile(RUN_SQL_BAT)
+        Call deleteFile(TMP_SQL_FILE)
+        Call deleteFile(TMP_SQL_RESULT)
+        Call deleteFile(ERROR_LOG)
+        Call deleteFile(FINALLY_RESULT)
+        'MsgBox ("検索できた。o(*^＠^*)o")
+    Else
+        Call deleteFile(RUN_SQL_BAT)
+        Call deleteFile(TMP_SQL_FILE)
+        Call deleteFile(TMP_SQL_RESULT)
+        Call deleteFile(FINALLY_RESULT)
+        MsgBox ("異常終了（￣～￣）ログファイルを確認してください。")
+        oShell.Run "notepad.exe " & PATH & ERROR_LOG, 1, False
+    End If
+
+    Set oShell = Nothing
+    Set FSO = Nothing
+    
+End Sub
+'バッチファイル作成
+Private Function createBatFile()
+    Dim str1 As String
+    Dim str2 As String
+    Dim str3 As String
+    Dim str4 As String
+    Dim str5 As String
+    Dim str6 As String
+    Dim str7 As String
+    Dim str8 As String
+    Dim str9 As String
+    Dim str10 As String
+    Dim str11 As String
+    str1 = "@echo off"
+    str2 = "chcp 65001"
+    str3 = "set PGPASSWORD=" & PASSWORD
+    str4 = "psql -h " & HOST & " -p " & PORT & " -U " & USER_ID & " -d " & DB_NAME & " -f " & PATH & TMP_SQL_FILE & " 1> " & PATH & TMP_SQL_RESULT & " 2> " & PATH & ERROR_LOG
+    str5 = "find /v " & Chr(34) & "----" & Chr(34) & " <" & PATH & TMP_SQL_RESULT & "> " & PATH & FINALLY_RESULT
+    str6 = "chcp 932"
+    str7 = "BEGIN;"
+    str8 = SQL_STR & ";"
+    str9 = "COMMIT;"
+    str10 = str1 & vbCrLf & str2 & vbCrLf & str3 & vbCrLf & str4 & vbCrLf & str5 & vbCrLf & str6
+    str11 = str7 & vbCrLf & str8 & vbCrLf & str9
+    Call loggingFile(PATH & RUN_SQL_BAT, str10)
+    Call loggingFile(PATH & TMP_SQL_FILE, str11)
+End Function
+'ファイル出力
+Private Sub loggingFile(pFileNm As String, pSql As String)
+    Dim fileNm As String
+    fileNm = pFileNm
+    Dim stream As TextStream
+    Set stream = FSO.OpenTextFile(fileNm, ForAppending, True)
+    stream.WriteLine pSql
+    stream.Close
+    Set stream = Nothing
+End Sub
+'ファイル削除
+Private Sub deleteFile(pFileNm As String)
+    Dim fileNm As String
+    fileNm = pFileNm
+    'ファイル実施後削除
+    If FSO.FileExists(PATH & fileNm) Then
+        FSO.deleteFile (PATH & fileNm)
+    End If
+End Sub
+
+'CSV読み込み
+Private Function readCsv() As Boolean
+readCsv = False
+    Dim filePath As String, buf As String, Target As String
+    Dim i As Long, j As Long, max As Long
+    Dim tmp As Variant, str As Variant, Data() As Variant
+    Dim count As Long, rows As Long
+    
+    'CSVファイルのパスを指定
+    filePath = PATH & FINALLY_RESULT
+    '行数取得
+    count = FSO.OpenTextFile(Filename:=filePath, IOMode:=8).line + 8
+    ReDim Data(count, 0)
+    Target = PATH & FINALLY_RESULT
+    With CreateObject("ADODB.Stream")
+        .Charset = "UTF-8"
+        .Open
+        .LoadFromFile Target
+        Do Until .EOS
+            buf = .ReadText(-2)
+            tmp = Split(buf, " | ")
+            j = 0
+            For Each str In tmp
+                If max < j Then
+                ReDim Preserve Data(count, j)
+                max = j
+                End If
+                Data(i, j) = Trim(str)
+                j = j + 1
+            Next str
+            i = i + 1
+            rows = i
+        Loop
+        .Close
+    End With
+    ActiveSheet.Range(Cells(11, 3), Cells(11, UBound(Data, 2) + 3)).Interior.Color = RGB(135, 231, 173)
+    'エクセルフォーマット設定
+    With ActiveSheet.Range(Cells(10, 3), Cells(count, UBound(Data, 2) + 3))
+        .NumberFormatLocal = "@"
+        .ShrinkToFit = False
+        .WrapText = False
+        .Value = Data
+        .Borders.LineStyle = xlContinuous
+        .HorizontalAlignment = xlCenter
+        .EntireColumn.AutoFit
+    End With
+    readCsv = True
+End Function
